@@ -4,6 +4,7 @@ import geopandas as gpd
 import numpy as np
 import glob
 import copy
+import yaml
 
 from pandas import DataFrame
 from pyproj import CRS
@@ -2212,12 +2213,69 @@ def assign_node_id(roadway_network=None, add_nodes_df=None):
     return add_nodes_df
 
 
+def read_rail_id_reservation(registry_config_file: str) -> dict:
+    """
+    Reads the 'Rail reserve' node and link id ranges from the project card registry config file.
+
+    Args:
+        registry_config_file (str): path to the project card registry registry_config.yml
+
+    Returns:
+        dict with 'nodes' and 'links' keys, each with inclusive 'start' and 'end' ids
+    """
+    with open(registry_config_file, "r") as file:
+        config = yaml.safe_load(file)
+
+    reservation = {}
+    for key, geography_list in [
+        ("nodes", "nodes_used_by_geography"),
+        ("links", "links_used_by_geography"),
+    ]:
+        matches = [g for g in config.get(geography_list, []) if g["geography_name"] == "Rail reserve"]
+        if not matches:
+            raise ValueError("'Rail reserve' missing from {} in {}".format(geography_list, registry_config_file))
+        reservation[key] = matches[0]
+
+    return reservation
+
+
+def assign_reserved_id(add_df, id_column: str, id_range: dict, existing_ids):
+    """
+    Assigns sequential ids from the start of a reserved id range.
+
+    Args:
+        add_df: new rail nodes or links
+        id_column (str): 'model_node_id' or 'model_link_id'
+        id_range (dict): reserved range with inclusive 'start' and 'end' ids
+        existing_ids: ids already used in the roadway network
+
+    Returns:
+        add_df with ids from the reserved range
+    """
+    if id_range["start"] + len(add_df) - 1 > id_range["end"]:
+        raise ValueError(
+            "Reserved {} range ({} to {}) is too small for {} new features".format(
+                id_column, id_range["start"], id_range["end"], len(add_df)
+            )
+        )
+
+    new_ids = list(range(id_range["start"], id_range["start"] + len(add_df)))
+    used_ids = sorted(set(new_ids) & set(existing_ids))
+    if used_ids:
+        raise ValueError("Reserved {} ids already in the roadway network: {}".format(id_column, used_ids))
+
+    add_df[id_column] = new_ids
+
+    return add_df
+
+
 def add_rail_links_and_nodes(
     roadway_network=None,
     parameters=None,
     rail_links_file: str = None,
     rail_nodes_file: str = None,
     add_rail_ae_connections: bool = False,
+    registry_config_file: str = None,
 ):
     """
     Args:
@@ -2225,6 +2283,8 @@ def add_rail_links_and_nodes(
         parameters (Parameters): Lasso parameters object
         rail_links_file (str): rail link gdf pickle filename
         rail_nodes_file (str): rail node pickle filename
+        registry_config_file (str): project card registry registry_config.yml, required; rail node and link
+            ids are assigned from the 'Rail reserve' ranges in this file
 
     Returns:
         roadway network object
@@ -2267,6 +2327,11 @@ def add_rail_links_and_nodes(
         WranglerLogger.error(msg)
         raise ValueError(msg)
 
+    if not registry_config_file:
+        msg = "'registry_config_file' is required to assign rail node and link ids."
+        WranglerLogger.error(msg)
+        raise ValueError(msg)
+
     """
     Start actual process
     """
@@ -2290,10 +2355,23 @@ def add_rail_links_and_nodes(
     rail_nodes_gdf["X"] = rail_nodes_gdf.geometry.apply(lambda g: g.x)
     rail_nodes_gdf["Y"] = rail_nodes_gdf.geometry.apply(lambda g: g.y)
 
+    rail_id_reservation = read_rail_id_reservation(registry_config_file)
+
     if "model_link_id" not in rail_links_gdf.columns:
-        rail_links_gdf = assign_link_id(roadway_network, rail_links_gdf)
+        rail_links_gdf = assign_reserved_id(
+            rail_links_gdf,
+            "model_link_id",
+            rail_id_reservation["links"],
+            roadway_network.links_df["model_link_id"],
+        )
     if "model_node_id" not in rail_nodes_gdf.columns:
-        rail_nodes_gdf = assign_node_id(roadway_network, rail_nodes_gdf)
+        rail_nodes_gdf = assign_reserved_id(
+            rail_nodes_gdf,
+            "model_node_id",
+            rail_id_reservation["nodes"],
+            roadway_network.nodes_df["model_node_id"],
+        )
+
     if "A" not in rail_links_gdf.columns:
         node_id_crosswalk = dict(
             zip(rail_nodes_gdf["shst_node_id"], rail_nodes_gdf["model_node_id"])
