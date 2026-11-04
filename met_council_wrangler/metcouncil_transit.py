@@ -18,6 +18,7 @@ from lark import Lark, Transformer, v_args
 from pandas import DataFrame
 
 import pandas as pd
+import numpy as np
 import partridge as ptg
 
 from network_wrangler.transit.network import TransitNetwork
@@ -1179,6 +1180,94 @@ def fill_missing_agency_name(dataframes, column_name, default_value=0):
         else:
             print(f"Column '{column_name}' not found.")
 
+def convert_to_network_wrangler_format(
+    stops_df=None,
+    stop_times_df=None,
+    shapes_df=None,
+    trips_df=None,
+    routes_df=None,
+    road_network=None
+):
+    """
+    Convert stops.txt and stop_times.txt to Network Wrangler readable format
+
+    Does the following operations:
+    1. update model_node_id in stops.txt
+    2. update shape_model_node_id column in shapes.txt
+    3. update model_node_id column in stop_times.txt
+    4. Save old stop_id values in new stop_id_GTFS column
+    5. stop_id now uses model_node_id values
+    6. Removed duplicate entries in stop_id column (keeping first occurrence)
+    7. Replace values in stop_id column in stop_times.txt with model_node_id values
+
+    Returns:
+        stop.txt 
+        stop_times.txt
+        shapes.txt
+    """   
+
+    shst_to_model_xwalk = road_network.nodes_df.set_index('shst_node_id')['model_node_id'].to_dict()
+
+    # add model_node_id to stops
+    stops_df['model_node_id'] = np.where(
+        stops_df['model_node_id'].notnull(),
+        stops_df['model_node_id'],
+        stops_df['shst_node_id'].map(shst_to_model_xwalk)
+    )
+
+    # add model_node_id to shapes
+    shapes_df['shape_model_node_id'] = np.where(
+        shapes_df['shape_model_node_id'].notnull(),
+        shapes_df['shape_model_node_id'],
+        shapes_df['shst_node_id'].map(shst_to_model_xwalk)
+    )
+
+    # add model_node_id to stop_times
+    trips_routes_df = trips_df.merge(routes_df, on="route_id", how="left")
+    stops_df["trip_id"] = stops_df["trip_id"].astype(str)
+    stops_df = stops_df.merge(trips_routes_df, on="trip_id", how="left")
+
+    stop_times_df = pd.merge(
+        stop_times_df,
+        stops_df[stops_df["route_type"] == 3][
+            ["agency_raw_name", "stop_id", "trip_id", "route_type", "model_node_id"]
+        ].drop_duplicates(),
+        how="left",
+        on=["agency_raw_name", "stop_id", "trip_id"],
+    )
+
+    stop_times_df = pd.merge(
+        stop_times_df,
+        stops_df[stops_df["route_type"] != 3][
+            ["agency_raw_name", "stop_id", "model_node_id"]
+        ].drop_duplicates(),
+        how="left",
+        on=["agency_raw_name", "stop_id"],
+        suffixes=("_bus", "_not_bus"),
+    )
+
+    stop_times_df['model_node_id'] = np.where(
+        stop_times_df['model_node_id_bus'].isna(),
+        stop_times_df['model_node_id_not_bus'],
+        stop_times_df['model_node_id_bus']
+    )
+
+    stop_times_df = stop_times_df.drop(columns=["route_type","model_node_id_bus","model_node_id_not_bus"])
+
+    stop_times_df["stop_id"] = stop_times_df["model_node_id"]
+    stop_times_df = stop_times_df.drop(columns=["model_node_id"])
+
+    unique_stops_df = stops_df.drop_duplicates(subset=['model_node_id', 'stop_id'])
+    unique_stops_df = unique_stops_df.groupby('model_node_id')['stop_id'].agg(lambda x: ', '.join(map(str,x))).reset_index()
+    unique_stops_df.rename(columns={'stop_id': 'stop_id_GTFS'}, inplace=True)
+    final_stops_df = stops_df.drop_duplicates(subset=['model_node_id'])
+    final_stops_df = final_stops_df.merge(unique_stops_df, on='model_node_id', how='left')
+    final_stops_df = final_stops_df.drop(columns=["route_id","route_type","stop_id"])
+    final_stops_df = final_stops_df.rename(columns={'model_node_id':'stop_id'})
+
+    assert stop_times_df["stop_id"].isin(set(final_stops_df["stop_id"])).all()
+
+    return final_stops_df, stop_times_df, shapes_df
 
 def route_properties_gtfs_to_cube(
     transit_net=None, parameters=None, line_name_xwalk: str = None
