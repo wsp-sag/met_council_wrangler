@@ -1497,7 +1497,7 @@ def calculate_cube_mode(row) -> int:
     cube_mode = route_type_to_cube_mode[row["route_type"]]
 
     if not cube_mode:
-        if "express" in str(row["route_long_name"]).lower():
+        if "express" in str(row["route_desc"]).lower():
             cube_mode = 7  # Express
         elif (
             row["route_id"].split("-")[0].isdigit()
