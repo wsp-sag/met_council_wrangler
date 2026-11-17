@@ -1136,9 +1136,9 @@ def calculate_number_of_lanes_from_reviewed_network(
         join_df[var_name] = join_df.apply(lambda x: _set_lanes(x), axis=1)
         roadway_net.links_df = pd.merge(
             roadway_net.links_df,
-            join_df[["shstReferenceId", var_name]],
+            join_df[["shstReferenceId", "model_link_id", var_name]],
             how="left",
-            on="shstReferenceId",
+            on=["shstReferenceId","model_link_id"],
         )
         roadway_net.links_df[network_variable] = np.where(
             roadway_net.links_df[network_variable] > 0,
@@ -1150,9 +1150,9 @@ def calculate_number_of_lanes_from_reviewed_network(
         join_df[network_variable] = join_df.apply(lambda x: _set_lanes(x), axis=1)
         roadway_net.links_df = pd.merge(
             roadway_net.links_df,
-            join_df[["shstReferenceId", network_variable]],
+            join_df[["shstReferenceId","model_link_id", network_variable]],
             how="left",
-            on="shstReferenceId",
+            on=["shstReferenceId","model_link_id"],
         )
 
     WranglerLogger.info(
@@ -1827,9 +1827,9 @@ def calculate_assign_group_and_roadway_class_from_reviewed_network(
         )
         roadway_net.links_df = pd.merge(
             roadway_net.links_df,
-            join_gdf[["shstReferenceId"] + [assign_group_variable_name + "_cal"]],
+            join_gdf[["shstReferenceId", "model_link_id"] + [assign_group_variable_name + "_cal"]],
             how="left",
-            on="shstReferenceId",
+            on=["shstReferenceId", "model_link_id"],
         )
         roadway_net.links_df[assign_group_variable_name] = np.where(
             roadway_net.links_df[assign_group_variable_name] > 0,
@@ -1842,9 +1842,9 @@ def calculate_assign_group_and_roadway_class_from_reviewed_network(
     else:
         roadway_net.links_df = pd.merge(
             roadway_net.links_df,
-            join_gdf[["shstReferenceId"] + [assign_group_variable_name]],
+            join_gdf[["shstReferenceId", "model_link_id"] + [assign_group_variable_name]],
             how="left",
-            on="shstReferenceId",
+            on=["shstReferenceId", "model_link_id"],
         )
 
     if update_roadway_class:
@@ -1854,9 +1854,9 @@ def calculate_assign_group_and_roadway_class_from_reviewed_network(
         )
         roadway_net.links_df = pd.merge(
             roadway_net.links_df,
-            join_gdf[["shstReferenceId"] + [road_class_variable_name + "_cal"]],
+            join_gdf[["shstReferenceId", "model_link_id"] + [road_class_variable_name + "_cal"]],
             how="left",
-            on="shstReferenceId",
+            on=["shstReferenceId", "model_link_id"],
         )
         roadway_net.links_df[road_class_variable_name] = np.where(
             roadway_net.links_df[road_class_variable_name] > 0,
@@ -1869,9 +1869,9 @@ def calculate_assign_group_and_roadway_class_from_reviewed_network(
     else:
         roadway_net.links_df = pd.merge(
             roadway_net.links_df,
-            join_gdf[["shstReferenceId"] + [road_class_variable_name]],
+            join_gdf[["shstReferenceId", "model_link_id"] + [road_class_variable_name]],
             how="left",
-            on="shstReferenceId",
+            on=["shstReferenceId", "model_link_id"],
         )
 
     WranglerLogger.info(
