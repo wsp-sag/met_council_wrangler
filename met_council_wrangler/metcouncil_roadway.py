@@ -20,7 +20,7 @@ from cube_wrangler.roadway import (
     create_ML_variable,
     create_hov_corridor_variable,
     create_managed_variable,
-    fill_na,
+    convert_types,
     split_properties_by_time_period_and_category,
     convert_int,
     convert_bool,
@@ -94,14 +94,14 @@ def roadway_standard_to_met_council_network(
     roadway_net = calculate_mpo(roadway_net, parameters)
     roadway_net = add_counts(roadway_net, parameters)
 
-    roadway_net = fill_na(roadway_net, parameters)
+    roadway_net = convert_types(roadway_net, parameters)
     # no method to calculate price yet, will be hard coded in project card
     WranglerLogger.info("Splitting variables by time period and category")
     roadway_net = split_properties_by_time_period_and_category(
         roadway_net, parameters, properties_to_split=parameters.properties_to_split
     )
-    roadway_net = convert_int(roadway_net, parameters, int_col_names=parameters.int_col)
-    roadway_net = convert_bool(
+    roadway_net = convert_types(roadway_net, parameters, int_col_names=parameters.int_col)
+    roadway_net = convert_types(
         roadway_net, parameters, bool_col_names=parameters.bool_col
     )
 
@@ -345,6 +345,10 @@ def calculate_area_type(
         roadway_net.links_df[network_variable] = roadway_net.links_df[
             network_variable
         ].fillna(joined_gdf[area_type_shape_variable])
+
+    roadway_net.links_df[network_variable] = pd.to_numeric(
+        roadway_net.links_df[network_variable], errors="raise"
+    ).astype("Int64")
 
     WranglerLogger.info(
         "Finished Calculating Area Type from Spatial Data into variable: {}".format(
@@ -723,12 +727,16 @@ def add_counts(
         overwrite=False,
     )
 
-    roadway_net.links_df["count_AM"] = roadway_net.links_df[network_variable] / 4
-    roadway_net.links_df["count_MD"] = roadway_net.links_df[network_variable] / 4
-    roadway_net.links_df["count_PM"] = roadway_net.links_df[network_variable] / 4
-    roadway_net.links_df["count_NT"] = roadway_net.links_df[network_variable] / 4
+    # convert counts data type to integer as required by Cube Wrangler data model
+    daily_count = roadway_net.links_df[network_variable].astype("Int64")
+    period_count = (daily_count // 4).astype("Int64")
+    for period in ("count_AM", "count_MD", "count_PM"):
+        roadway_net.links_df[period] = period_count
+    roadway_net.links_df["count_NT"] = (
+        daily_count - period_count * 3
+    ).astype("Int64")
 
-    roadway_net.links_df["count_daily"] = roadway_net.links_df[network_variable]
+    roadway_net.links_df["count_daily"] = daily_count
     # add COUNTYEAR
     roadway_net.links_df["count_year"] = 2017
 
@@ -2227,13 +2235,13 @@ def read_rail_id_reservation(registry_config_file: str) -> dict:
         config = yaml.safe_load(file)
 
     reservation = {}
-    for key, geography_list in [
-        ("nodes", "nodes_used_by_geography"),
-        ("links", "links_used_by_geography"),
+    for key, geography_list, name in [
+        ("nodes", "nodes_used_by_geography", "Rail nodes reserve"),
+        ("links", "links_used_by_geography", "Rail links reserve"),
     ]:
-        matches = [g for g in config.get(geography_list, []) if g["geography_name"] == "Rail reserve"]
+        matches = [g for g in config.get(geography_list, []) if g["geography_name"] == name]
         if not matches:
-            raise ValueError("'Rail reserve' missing from {} in {}".format(geography_list, registry_config_file))
+            raise ValueError("'{}' missing from {} in {}".format(name, geography_list, registry_config_file))
         reservation[key] = matches[0]
 
     return reservation

@@ -1,6 +1,7 @@
 import os
 from cube_wrangler.logger import WranglerLogger
 from cube_wrangler import Parameters
+from cube_wrangler.parameters import TimePeriodsConfig, CategoriesConfig
 
 
 def get_base_dir(metcouncil_wrangler_base_dir=os.getcwd()):
@@ -38,18 +39,24 @@ class MetCouncil_Parameters(Parameters):
         constructor for the Parameters class
 
         """
-        super().__init__(**kwargs)
+        if "time_periods" not in kwargs:
+            kwargs["time_periods"] = TimePeriodsConfig(
+                EA=("3:00", "6:00"),
+                AM=("6:00", "10:00"),
+                MD=("10:00", "15:00"),
+                PM=("15:00", "19:00"),
+                NT=("19:00", "3:00"),
+            )
 
-        if "time_periods_to_time" in kwargs:
-            self.time_periods_to_time = kwargs.get("time_periods_to_time")
-        else:
-            self.time_period_to_time = {
-                "EA": ("3:00", "6:00"),
-                "AM": ("6:00", "10:00"),  ##TODO FILL IN with real numbers
-                "MD": ("10:00", "15:00"),
-                "PM": ("15:00", "19:00"),
-                "NT": ("19:00", "3:00"),
-            }
+        if "categories" not in kwargs:
+            kwargs["categories"] = CategoriesConfig(
+                sov=["sov", "default"],
+                hov2=["hov2", "default", "sov"],
+                hov3=["hov3", "hov2", "default", "sov"],
+                truck=["trk", "sov", "default"],
+            )
+
+        super().__init__(**kwargs)
 
         self.route_type_bus_mode_dict = {"Urb Loc": 5, "Sub Loc": 6, "Express": 7}
 
@@ -63,24 +70,6 @@ class MetCouncil_Parameters(Parameters):
             "PM": "PM",
             "NT": "NT",
         }  # PK, OP
-
-        if "categories" in kwargs:
-            self.categories = kwargs.get("categories")
-        else:
-            self.categories = {
-                # suffix, source (in order of search)
-                "sov": ["sov", "default"],
-                "hov2": ["hov2", "default", "sov"],
-                "hov3": ["hov3", "hov2", "default", "sov"],
-                "truck": ["trk", "sov", "default"],
-            }
-            self.categories = {
-                # suffix, source (in order of search)
-                "sov": "sov",
-                "hov2": "hov2",
-                "hov3": "hov3",
-                "truck": "trk",
-            }
 
         # prefix, source variable, categories
         self.properties_to_split = {
@@ -97,7 +86,7 @@ class MetCouncil_Parameters(Parameters):
             "price": {
                 "v": "price",
                 "time_periods": self.time_period_to_time,
-                "categories": self.categories,
+                "categories": self.categories.as_dict(),
             },
             "access": {"v": "access", "time_periods": self.time_period_to_time},
         }
@@ -443,7 +432,8 @@ class MetCouncil_Parameters(Parameters):
             for t in self.cube_time_periods.keys()
         ]
 
-        self.bool_col = [
+        # Extend Cube column definitions with MetCouncil specific columns
+        metcouncil_bool_cols = [
             "rail_only",
             "bus_only",
             "drive_access",
@@ -451,13 +441,13 @@ class MetCouncil_Parameters(Parameters):
             "walk_access",
             "truck_access",
         ]
+        self.__dict__["bool_col"] = metcouncil_bool_cols
 
-        self.int_col = [
+        metcouncil_int_cols = [
             "model_link_id",
             "model_node_id",
             "A",
             "B",
-            # "lanes",
             "lanes_AM",
             "lanes_MD",
             "lanes_PM",
@@ -475,33 +465,27 @@ class MetCouncil_Parameters(Parameters):
             "count_daily",
             "centroidconnect",
             "bike_facility",
-            # "drive_access",
-            # "walk_access",
-            # "bike_access",
-            # "truck_access",
             "drive_node",
             "walk_node",
             "bike_node",
             "transit_node",
-            # "ML_lanes",
             "ML_lanes_AM",
             "ML_lanes_MD",
             "ML_lanes_PM",
             "ML_lanes_NT",
             "segment_id",
             "managed",
-            # "bus_only",
-            # "rail_only",
             "mrcc_id",
             "bike",
             "walk",
             "MNPASS_CODE",
             "MNPASS_PAY",
         ]
+        self.__dict__["int_col"] = metcouncil_int_cols
 
         self.float_col = ["distance", "ttime_assert", "price", "X", "Y"]
 
-        self.string_col = [
+        metcouncil_string_cols = [
             "osm_node_id",
             "name",
             "roadway",
@@ -512,6 +496,7 @@ class MetCouncil_Parameters(Parameters):
             "access_NT",
             "ROUTE_SYS",
         ]
+        self.__dict__["string_col"] = metcouncil_string_cols
 
         self.zones = 3061
 
@@ -553,3 +538,18 @@ class MetCouncil_Parameters(Parameters):
         self.roadway_network_unique_shape_key = "shape_id"
 
         self.__dict__.update(kwargs)
+
+    @property
+    def bool_col(self) -> list[str]:
+        """Cube boolean columns followed by unique MetCouncil additions."""
+        return list(dict.fromkeys(super().bool_col + self.__dict__.get("bool_col", [])))
+
+    @property
+    def int_col(self) -> list[str]:
+        """Cube integer columns followed by unique MetCouncil additions."""
+        return list(dict.fromkeys(super().int_col + self.__dict__.get("int_col", [])))
+
+    @property
+    def string_col(self) -> list[str]:
+        """Cube string/object columns followed by unique MetCouncil additions."""
+        return list(dict.fromkeys(super().string_col + self.__dict__.get("string_col", [])))
