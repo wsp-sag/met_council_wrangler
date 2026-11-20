@@ -105,6 +105,12 @@ def roadway_standard_to_met_council_network(
         roadway_net, parameters, bool_col_names=parameters.bool_col
     )
 
+    for column in parameters.bool_col:
+        if column in roadway_net.nodes_df.columns:
+            roadway_net.nodes_df[column] = pd.to_numeric(
+                roadway_net.nodes_df[column]
+            ).astype("Int64")
+
     links_with_shape_id = roadway_net.links_df[
         roadway_net.links_df[parameters.roadway_network_unique_shape_key].isin(
             roadway_net.shapes_df[parameters.roadway_network_unique_shape_key]
@@ -2298,7 +2304,7 @@ def add_rail_links_and_nodes(
         roadway network object
     """
 
-    WranglerLogger.info("Adding centroid and centroid connector to standard network")
+    WranglerLogger.info("Adding rail links and nodes to standard network")
 
     """
     Verify inputs
